@@ -2,4 +2,4 @@ handeenv/
 .env
 Raw_image/
 Solution/
-bath_line_model.pth
+back_line_model.pth
