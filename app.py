@@ -5,11 +5,9 @@ from mediapipe.tasks.python import vision
 import time
 import urllib.request
 import os
-from dotenv import load_dotenv
 import numpy as np
 from scipy.interpolate import splprep, splev
 from collections import deque
-from real_scoliosis_ai import RealScoliosisAI
 
 MODEL_PATH = "hand_landmarker.task"
 if not os.path.exists(MODEL_PATH):
@@ -35,6 +33,11 @@ HAND_CONNECTIONS = [
 ]
 
 cap = cv2.VideoCapture(0)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+CAM_W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+CAM_H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+print(f"[Camera] Resolution: {CAM_W}x{CAM_H}")
 pTime = 0
 trail_points = []
 frozen_trail = []
@@ -43,13 +46,6 @@ still_since = None
 drawing = False
 done = False
 last_draw_pos = None
-
-load_dotenv()
-api_key = os.getenv("OPENAI_API_KEY")
-real_ai = RealScoliosisAI(api_key)
-ai_corrected_coords = []
-show_ai_results = False
-ai_processing = False
 
 while True:
     success, img = cap.read()
@@ -96,20 +92,7 @@ while True:
                                     frozen_trail = trail_points.copy()
                                     still_since = None
                                     recent_positions.clear()
-                                    
-                                    # Process with REAL AI when drawing is complete
-                                    if len(frozen_trail) > 3:
-                                        ai_processing = True
-                                        import threading
-                                        snapshot = img.copy()  # capture frame NOW before loop advances
-                                        trail_snapshot = frozen_trail.copy()
-                                        def ai_analysis(frame=snapshot, trail=trail_snapshot):
-                                            global ai_corrected_coords, ai_processing, show_ai_results
-                                            coords, _ = real_ai.analyze_and_correct(trail, frame)
-                                            ai_corrected_coords = coords
-                                            ai_processing = False
-                                            show_ai_results = True
-                                        threading.Thread(target=ai_analysis, daemon=True).start()
+
                         else:
                             still_since = None
                             if drawing:
@@ -139,21 +122,12 @@ while True:
                 cv2.line(img, points[a], points[b], (0, 255, 0), 2)
 
             if done:
-                if ai_processing:
-                    status = "🤖 AI ANALYZING SPINE... Please wait"
-                else:
-                    status = "DONE - 'r':reset 'a':toggle AI results"
+                status = "DONE - 'r':reset"
             elif drawing:
                 status = f"STOP IN: {max(0, 1-(time.time()-still_since)):.1f}s" if still_since else "DRAWING"
             else:
                 status = f"START IN: {max(0, 1-(time.time()-still_since)):.1f}s" if still_since else "HOLD STILL 1s"
             cv2.putText(img, status, (10, 110), cv2.FONT_HERSHEY_PLAIN, 1, (0, 255, 255), 1)
-            
-            # Show AI corrected spine
-            if show_ai_results and ai_corrected_coords and not ai_processing:
-                if len(ai_corrected_coords) > 1:
-                    pts = np.array(ai_corrected_coords, dtype=np.int32)
-                    cv2.polylines(img, [pts.reshape(-1, 1, 2)], False, (0, 255, 0), 3)
 
     cTime = time.time()
     fps = 1 / (cTime - pTime)
@@ -168,15 +142,11 @@ while True:
     elif key == ord('r'):  # Reset
         trail_points = []
         frozen_trail = []
-        ai_corrected_coords = []
         done = False
         drawing = False
-        show_ai_results = False
-        ai_processing = False
         still_since = None
+        last_draw_pos = None
         recent_positions.clear()
-    elif key == ord('a'):  # Toggle AI results
-        show_ai_results = not show_ai_results
 
 cap.release()
 cv2.destroyAllWindows()
