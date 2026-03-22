@@ -38,6 +38,22 @@ cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 CAM_W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 CAM_H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 print(f"[Camera] Resolution: {CAM_W}x{CAM_H}")
+
+# Load back.png overlay image
+back_img = cv2.imread("back.png", cv2.IMREAD_UNCHANGED)
+if back_img is None:
+    print("Warning: back.png not found!")
+    back_img_resized = None
+else:
+    print(f"[Overlay] Loaded back.png: {back_img.shape}")
+    # Resize overlay - 3x bigger than half screen
+    bh, bw = back_img.shape[:2]
+    scale = min((CAM_W * 0.5) / bw, (CAM_H * 0.5) / bh) * 4.5
+    new_w = int(bw * scale)
+    new_h = int(bh * scale)
+    back_img_resized = cv2.resize(back_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    print(f"[Overlay] Resized to: {back_img_resized.shape}")
+
 pTime = 0
 trail_points = []
 frozen_trail = []
@@ -54,8 +70,8 @@ while True:
     if not success:
         break
 
-    # If done and 1 second has passed, show frozen frame
-    if done and done_time is not None and (time.time() - done_time) >= 1.0:
+    # If done and 3 seconds has passed, show frozen frame
+    if done and done_time is not None and (time.time() - done_time) >= 3.0:
         if frozen_frame is None:
             # Need to process one more frame to capture the final state with drawing
             pass
@@ -78,6 +94,21 @@ while True:
 
     imgRGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     results = detector.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=imgRGB))
+
+    # Always draw frozen trail if done (even without hand detection)
+    if done and len(frozen_trail) >= 4:
+        seen = set()
+        deduped = [p for p in frozen_trail if not (tuple(p) in seen or seen.add(tuple(p)))]
+        pts = np.array(deduped, dtype=np.float32)
+        if len(pts) >= 4:
+            try:
+                tck, u = splprep([pts[:, 0], pts[:, 1]], s=0, k=min(3, len(pts)-1))
+                fine = np.linspace(0, 1, 300)
+                sx, sy = splev(fine, tck)
+                spline_pts = np.array(list(zip(sx.astype(int), sy.astype(int))))
+                cv2.polylines(img, [spline_pts.reshape(-1, 1, 2)], False, (0, 0, 255), 2)
+            except:
+                pass
 
     if results.hand_landmarks:
         for hand_landmarks in results.hand_landmarks:
@@ -145,13 +176,49 @@ while True:
             for a, b in HAND_CONNECTIONS:
                 cv2.line(img, points[a], points[b], (0, 255, 0), 2)
 
-            if done:
-                status = "DONE - 'r':reset"
-            elif drawing:
-                status = f"STOP IN: {max(0, 1-(time.time()-still_since)):.1f}s" if still_since else "DRAWING"
+    # Overlay back.png in center when done
+    if done and back_img_resized is not None:
+        h, w = img.shape[:2]
+        bh, bw = back_img_resized.shape[:2]
+        
+        # Calculate center position
+        x = (w - bw) // 2
+        y = (h - bh) // 2
+        
+        # Calculate clipping boundaries
+        src_x1 = max(0, -x)
+        src_y1 = max(0, -y)
+        src_x2 = min(bw, w - x)
+        src_y2 = min(bh, h - y)
+        
+        dst_x1 = max(0, x)
+        dst_y1 = max(0, y)
+        dst_x2 = min(w, x + bw)
+        dst_y2 = min(h, y + bh)
+        
+        # Only overlay the visible portion
+        if src_x2 > src_x1 and src_y2 > src_y1:
+            overlay_section = back_img_resized[src_y1:src_y2, src_x1:src_x2]
+            
+            # Overlay with alpha channel if available
+            if back_img_resized.shape[2] == 4:  # Has alpha channel
+                alpha = overlay_section[:, :, 3:4] / 255.0
+                for c in range(3):
+                    img[dst_y1:dst_y2, dst_x1:dst_x2, c] = (
+                        alpha[:, :, 0] * overlay_section[:, :, c] + 
+                        (1 - alpha[:, :, 0]) * img[dst_y1:dst_y2, dst_x1:dst_x2, c]
+                    )
             else:
-                status = f"START IN: {max(0, 1-(time.time()-still_since)):.1f}s" if still_since else "HOLD STILL 1s"
-            cv2.putText(img, status, (10, 110), cv2.FONT_HERSHEY_PLAIN, 1, (0, 255, 255), 1)
+                img[dst_y1:dst_y2, dst_x1:dst_x2] = overlay_section[:, :, :3]
+
+    # Display status text (even without hand detection)
+    if done:
+        status = "DONE - 'r':reset"
+    elif drawing:
+        status = f"STOP IN: {max(0, 1-(time.time()-still_since)):.1f}s" if still_since else "DRAWING"
+    else:
+        status = f"START IN: {max(0, 1-(time.time()-still_since)):.1f}s" if still_since else "HOLD STILL 1s"
+    cv2.putText(img, status, (10, 110), cv2.FONT_HERSHEY_PLAIN, 1, (0, 255, 255), 1)
 
     cTime = time.time()
     fps = 1 / (cTime - pTime)
@@ -159,8 +226,8 @@ while True:
 
     cv2.putText(img, str(int(fps)), (10, 70), cv2.FONT_HERSHEY_PLAIN, 3, (255, 0, 255), 3)
     
-    # Capture frozen frame after 1 second delay
-    if done and done_time is not None and (time.time() - done_time) >= 1.0 and frozen_frame is None:
+    # Capture frozen frame after 3 second delay
+    if done and done_time is not None and (time.time() - done_time) >= 3.0 and frozen_frame is None:
         frozen_frame = img.copy()
     
     cv2.imshow("Image", img)

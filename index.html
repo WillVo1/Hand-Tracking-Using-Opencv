@@ -98,8 +98,8 @@
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            max-width: 80%;
-            max-height: 80%;
+            max-width: 160%;
+            max-height: 160%;
             z-index: 15;
             display: none;
         }
@@ -172,7 +172,7 @@
 
         hands.onResults(onResults);
 
-        // Setup camera - FORCE BACK CAMERA on iPad
+        // Setup camera - FORCE BACK CAMERA
         const camera = new Camera(video, {
             onFrame: async () => {
                 await hands.send({image: video});
@@ -205,19 +205,19 @@
             lastTime = now;
             fpsDiv.textContent = fps;
 
-            // If frozen, show frozen frame
-            if (done && doneTime && (Date.now() - doneTime) >= 4000 && frozenFrame) {
+            // If frozen (after 3 seconds), show frozen frame and return
+            if (done && doneTime && (Date.now() - doneTime) >= 3000 && frozenFrame) {
                 ctx.putImageData(frozenFrame, 0, 0);
                 return;
             }
 
-            // Clear and draw video frame (no mirroring for back camera)
+            // Always draw video frame first
             ctx.save();
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
             ctx.restore();
 
-            // Draw the trail even if hand is not detected (during drawing mode)
+            // Draw the trail during drawing mode
             if (drawing && trailPoints.length >= 2) {
                 ctx.beginPath();
                 ctx.strokeStyle = '#0000ff';
@@ -231,7 +231,7 @@
                 ctx.stroke();
             }
 
-            // Draw frozen trail when done
+            // ALWAYS draw frozen trail when done, even without hands
             if (done && frozenTrail.length >= 2) {
                 ctx.beginPath();
                 ctx.strokeStyle = '#0000ff';
@@ -247,9 +247,11 @@
 
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 for (const landmarks of results.multiHandLandmarks) {
-                    // Draw hand landmarks
-                    drawLandmarks(landmarks);
-                    drawConnections(landmarks);
+                    // Draw hand landmarks only if not done
+                    if (!done) {
+                        drawLandmarks(landmarks);
+                        drawConnections(landmarks);
+                    }
 
                     // Get index finger tip (landmark 8)
                     const indexTip = landmarks[8];
@@ -283,14 +285,15 @@
                                     stillSince = null;
                                 } else if (drawing && elapsed >= 2) {
                                     // Stop drawing after 2 seconds
+                                    console.log('STOPPING! Trail points:', trailPoints.length);
                                     done = true;
                                     doneTime = Date.now();
                                     drawing = false;
                                     frozenTrail = [...trailPoints];
+                                    console.log('Frozen trail saved:', frozenTrail.length);
                                     stillSince = null;
                                     recentPositions = [];
                                     resetBtn.style.display = 'block';
-                                    backImage.style.display = 'block';
                                 }
                             } else {
                                 stillSince = null;
@@ -340,9 +343,11 @@
                 }
             }
 
-            // Capture frozen frame after 4 seconds
-            if (done && doneTime && (Date.now() - doneTime) >= 4000 && !frozenFrame) {
+            // Capture frozen frame after 3 seconds and show back.png
+            if (done && doneTime && (Date.now() - doneTime) >= 3000 && !frozenFrame) {
                 frozenFrame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                backImage.style.display = 'block';
+                console.log('Frozen frame captured and back.png displayed');
             }
         }
 
