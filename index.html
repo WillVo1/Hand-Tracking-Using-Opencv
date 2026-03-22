@@ -252,7 +252,7 @@
                             } else {
                                 stillSince = null;
                                 if (drawing) {
-                                    if (!lastDrawPos || Math.sqrt((cx - lastDrawPos.x) ** 2 + (cy - lastDrawPos.y) ** 2) > 15) {
+                                    if (!lastDrawPos || Math.sqrt((cx - lastDrawPos.x) ** 2 + (cy - lastDrawPos.y) ** 2) > 30) {
                                         trailPoints.push({x: cx, y: cy});
                                         lastDrawPos = {x: cx, y: cy};
                                         if (trailPoints.length > MAX_TRAIL) {
