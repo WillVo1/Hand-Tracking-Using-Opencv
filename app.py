@@ -56,7 +56,7 @@ else:
 
 pTime = 0
 trail_points = []
-frozen_trail = []
+froz _trail = []
 recent_positions = deque(maxlen=10)
 still_since = None
 drawing = False
