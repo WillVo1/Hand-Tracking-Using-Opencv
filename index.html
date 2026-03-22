@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Hand Drawing Tracker</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            background: #1a1a1a;
+            overflow: hidden;
+            touch-action: none;
+        }
+        
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        #videoElement {
+            display: none;
+        }
+        
+        #canvas {
+            max-width: 100%;
+            max-height: 100%;
+            background: #000;
+            transform: scaleX(-1); /* Mirror the video */
+        }
+        
+        #status {
+            position: absolute;
+            top: 80px;
+            left: 20px;
+            color: #00ffff;
+            font-size: 16px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            z-index: 10;
+        }
+        
+        #fps {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #ff00ff;
+            font-size: 32px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            z-index: 10;
+        }
+        
+        #resetBtn {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 15px 40px;
+            font-size: 18px;
+            background: #ff00ff;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            z-index: 10;
+            font-weight: bold;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            display: none;
+        }
+        
+        #resetBtn:active {
+            transform: translateX(-50%) scale(0.95);
+        }
+        
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 20px;
+            text-align: center;
+            z-index: 5;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="loading">Loading Hand Tracking Model...</div>
+        <video id="videoElement" autoplay playsinline></video>
+        <canvas id="canvas"></canvas>
+        <div id="fps">0</div>
+        <div id="status">Hold still for 1s to start</div>
+        <button id="resetBtn">Reset (R)</button>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+
+    <script>
+        const video = document.getElementById('videoElement');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const statusDiv = document.getElementById('status');
+        const fpsDiv = document.getElementById('fps');
+        const resetBtn = document.getElementById('resetBtn');
+        const loadingDiv = document.getElementById('loading');
+
+        // State variables
+        let trailPoints = [];
+        let frozenTrail = [];
+        let recentPositions = [];
+        let stillSince = null;
+        let drawing = false;
+        let done = false;
+        let doneTime = null;
+        let lastDrawPos = null;
+        let frozenFrame = null;
+        let lastTime = performance.now();
+        let fps = 0;
+
+        const MAX_RECENT = 10;
+        const STILL_THRESHOLD = 15;
+        const MAX_TRAIL = 50;
+
+        // Hand connections for drawing skeleton
+        const HAND_CONNECTIONS = [
+            [0,1],[1,2],[2,3],[3,4],
+            [0,5],[5,6],[6,7],[7,8],
+            [5,9],[9,10],[10,11],[11,12],
+            [9,13],[13,14],[14,15],[15,16],
+            [13,17],[17,18],[18,19],[19,20],[0,17]
+        ];
+
+        // Initialize MediaPipe Hands
+        const hands = new Hands({
+            locateFile: (file) => {
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+            }
+        });
+
+        hands.setOptions({
+            maxNumHands: 2,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        hands.onResults(onResults);
+
+        // Setup camera
+        const camera = new Camera(video, {
+            onFrame: async () => {
+                await hands.send({image: video});
+            },
+            width: 1280,
+            height: 720,
+            facingMode: 'user' // Use front camera
+        });
+
+        camera.start().then(() => {
+            loadingDiv.style.display = 'none';
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            console.log('Camera started:', canvas.width, 'x', canvas.height);
+        }).catch((error) => {
+            loadingDiv.textContent = 'Error: ' + error.message + '\nPlease allow camera access';
+            console.error('Camera error:', error);
+        });
+
+        function onResults(results) {
+            // Set canvas size if not set
+            if (canvas.width === 0 || canvas.height === 0) {
+                canvas.width = results.image.width;
+                canvas.height = results.image.height;
+            }
+
+            // Calculate FPS
+            const now = performance.now();
+            fps = Math.round(1000 / (now - lastTime));
+            lastTime = now;
+            fpsDiv.textContent = fps;
+
+            // If frozen, show frozen frame
+            if (done && doneTime && (Date.now() - doneTime) >= 1000 && frozenFrame) {
+                ctx.putImageData(frozenFrame, 0, 0);
+                return;
+            }
+
+            // Clear and draw video frame
+            ctx.save();
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.scale(-1, 1);
+            ctx.translate(-canvas.width, 0);
+            ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+            ctx.restore();
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                for (const landmarks of results.multiHandLandmarks) {
+                    // Draw hand landmarks
+                    drawLandmarks(landmarks);
+                    drawConnections(landmarks);
+
+                    // Get index finger tip (landmark 8)
+                    const indexTip = landmarks[8];
+                    const cx = (1 - indexTip.x) * canvas.width; // Mirror x coordinate
+                    const cy = indexTip.y * canvas.height;
+
+                    recentPositions.push({x: cx, y: cy});
+                    if (recentPositions.length > MAX_RECENT) {
+                        recentPositions.shift();
+                    }
+
+                    if (recentPositions.length === MAX_RECENT) {
+                        const avgX = recentPositions.reduce((sum, p) => sum + p.x, 0) / MAX_RECENT;
+                        const avgY = recentPositions.reduce((sum, p) => sum + p.y, 0) / MAX_RECENT;
+                        const maxSpread = Math.max(...recentPositions.map(p => 
+                            Math.sqrt((p.x - avgX) ** 2 + (p.y - avgY) ** 2)
+                        ));
+                        const isStill = maxSpread < STILL_THRESHOLD;
+
+                        if (!done) {
+                            if (isStill) {
+                                if (stillSince === null) {
+                                    stillSince = Date.now();
+                                }
+                                const elapsed = (Date.now() - stillSince) / 1000;
+                                
+                                if (elapsed >= 1) {
+                                    if (!drawing) {
+                                        drawing = true;
+                                        stillSince = null;
+                                    } else {
+                                        done = true;
+                                        doneTime = Date.now();
+                                        drawing = false;
+                                        frozenTrail = [...trailPoints];
+                                        stillSince = null;
+                                        recentPositions = [];
+                                        resetBtn.style.display = 'block';
+                                    }
+                                }
+                            } else {
+                                stillSince = null;
+                                if (drawing) {
+                                    if (!lastDrawPos || Math.sqrt((cx - lastDrawPos.x) ** 2 + (cy - lastDrawPos.y) ** 2) > 15) {
+                                        trailPoints.push({x: cx, y: cy});
+                                        lastDrawPos = {x: cx, y: cy};
+                                        if (trailPoints.length > MAX_TRAIL) {
+                                            trailPoints.shift();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Draw trail
+                    const drawPts = done ? frozenTrail : (drawing ? [...trailPoints, {x: cx, y: cy}] : []);
+                    if (drawPts.length >= 2) {
+                        ctx.beginPath();
+                        ctx.strokeStyle = '#0000ff';
+                        ctx.lineWidth = 3;
+                        ctx.lineCap = 'round';
+                        ctx.lineJoin = 'round';
+                        ctx.moveTo(drawPts[0].x, drawPts[0].y);
+                        for (let i = 1; i < drawPts.length; i++) {
+                            ctx.lineTo(drawPts[i].x, drawPts[i].y);
+                        }
+                        ctx.stroke();
+                    }
+                }
+
+                // Update status
+                if (done) {
+                    statusDiv.textContent = "DONE - Press Reset";
+                } else if (drawing) {
+                    if (stillSince) {
+                        const remaining = Math.max(0, 1 - (Date.now() - stillSince) / 1000);
+                        statusDiv.textContent = `STOP IN: ${remaining.toFixed(1)}s`;
+                    } else {
+                        statusDiv.textContent = "DRAWING";
+                    }
+                } else {
+                    if (stillSince) {
+                        const remaining = Math.max(0, 1 - (Date.now() - stillSince) / 1000);
+                        statusDiv.textContent = `START IN: ${remaining.toFixed(1)}s`;
+                    } else {
+                        statusDiv.textContent = "HOLD STILL 1s";
+                    }
+                }
+            }
+
+            // Capture frozen frame after 1 second
+            if (done && doneTime && (Date.now() - doneTime) >= 1000 && !frozenFrame) {
+                frozenFrame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            }
+        }
+
+        function drawLandmarks(landmarks) {
+            for (let i = 0; i < landmarks.length; i++) {
+                const x = (1 - landmarks[i].x) * canvas.width;
+                const y = landmarks[i].y * canvas.height;
+                
+                ctx.beginPath();
+                ctx.arc(x, y, i === 0 ? 10 : 5, 0, 2 * Math.PI);
+                ctx.fillStyle = '#ff00ff';
+                ctx.fill();
+            }
+        }
+
+        function drawConnections(landmarks) {
+            ctx.strokeStyle = '#00ff00';
+            ctx.lineWidth = 2;
+            
+            for (const [start, end] of HAND_CONNECTIONS) {
+                const x1 = (1 - landmarks[start].x) * canvas.width;
+                const y1 = landmarks[start].y * canvas.height;
+                const x2 = (1 - landmarks[end].x) * canvas.width;
+                const y2 = landmarks[end].y * canvas.height;
+                
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+            }
+        }
+
+        function reset() {
+            trailPoints = [];
+            frozenTrail = [];
+            recentPositions = [];
+            stillSince = null;
+            drawing = false;
+            done = false;
+            doneTime = null;
+            lastDrawPos = null;
+            frozenFrame = null;
+            resetBtn.style.display = 'none';
+        }
+
+        resetBtn.addEventListener('click', reset);
+
+        // Keyboard support
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'r' || e.key === 'R') {
+                reset();
+            }
+        });
+    </script>
+</body>
+</html>

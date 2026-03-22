@@ -45,12 +45,36 @@ recent_positions = deque(maxlen=10)
 still_since = None
 drawing = False
 done = False
+done_time = None
 last_draw_pos = None
+frozen_frame = None
 
 while True:
     success, img = cap.read()
     if not success:
         break
+
+    # If done and 1 second has passed, show frozen frame
+    if done and done_time is not None and (time.time() - done_time) >= 1.0:
+        if frozen_frame is None:
+            # Need to process one more frame to capture the final state with drawing
+            pass
+        else:
+            cv2.imshow("Image", frozen_frame)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                break
+            elif key == ord('r'):  # Reset
+                trail_points = []
+                frozen_trail = []
+                done = False
+                done_time = None
+                drawing = False
+                still_since = None
+                last_draw_pos = None
+                recent_positions.clear()
+                frozen_frame = None
+            continue
 
     imgRGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     results = detector.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=imgRGB))
@@ -85,9 +109,9 @@ while True:
                                 if not drawing:
                                     drawing = True
                                     still_since = None
-                                    recent_positions.clear()
                                 elif drawing:
                                     done = True
+                                    done_time = time.time()
                                     drawing = False
                                     frozen_trail = trail_points.copy()
                                     still_since = None
@@ -134,6 +158,11 @@ while True:
     pTime = cTime
 
     cv2.putText(img, str(int(fps)), (10, 70), cv2.FONT_HERSHEY_PLAIN, 3, (255, 0, 255), 3)
+    
+    # Capture frozen frame after 1 second delay
+    if done and done_time is not None and (time.time() - done_time) >= 1.0 and frozen_frame is None:
+        frozen_frame = img.copy()
+    
     cv2.imshow("Image", img)
     
     key = cv2.waitKey(1) & 0xFF
@@ -143,10 +172,12 @@ while True:
         trail_points = []
         frozen_trail = []
         done = False
+        done_time = None
         drawing = False
         still_since = None
         last_draw_pos = None
         recent_positions.clear()
+        frozen_frame = None
 
 cap.release()
 cv2.destroyAllWindows()
