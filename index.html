@@ -35,7 +35,7 @@
             max-width: 100%;
             max-height: 100%;
             background: #000;
-            transform: scaleX(-1); /* Mirror the video */
+            /* No mirroring for back camera */
         }
         
         #status {
@@ -159,14 +159,14 @@
 
         hands.onResults(onResults);
 
-        // Setup camera
+        // Setup camera - FORCE BACK CAMERA on iPad
         const camera = new Camera(video, {
             onFrame: async () => {
                 await hands.send({image: video});
             },
             width: 1280,
             height: 720,
-            facingMode: 'user' // Use front camera
+            facingMode: { exact: 'environment' } // Force back camera
         });
 
         camera.start().then(() => {
@@ -198,11 +198,9 @@
                 return;
             }
 
-            // Clear and draw video frame
+            // Clear and draw video frame (no mirroring for back camera)
             ctx.save();
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.scale(-1, 1);
-            ctx.translate(-canvas.width, 0);
             ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
             ctx.restore();
 
@@ -214,7 +212,7 @@
 
                     // Get index finger tip (landmark 8)
                     const indexTip = landmarks[8];
-                    const cx = (1 - indexTip.x) * canvas.width; // Mirror x coordinate
+                    const cx = indexTip.x * canvas.width; // No mirroring for back camera
                     const cy = indexTip.y * canvas.height;
 
                     recentPositions.push({x: cx, y: cy});
@@ -310,7 +308,7 @@
 
         function drawLandmarks(landmarks) {
             for (let i = 0; i < landmarks.length; i++) {
-                const x = (1 - landmarks[i].x) * canvas.width;
+                const x = landmarks[i].x * canvas.width;
                 const y = landmarks[i].y * canvas.height;
                 
                 ctx.beginPath();
@@ -325,9 +323,9 @@
             ctx.lineWidth = 2;
             
             for (const [start, end] of HAND_CONNECTIONS) {
-                const x1 = (1 - landmarks[start].x) * canvas.width;
+                const x1 = landmarks[start].x * canvas.width;
                 const y1 = landmarks[start].y * canvas.height;
-                const x2 = (1 - landmarks[end].x) * canvas.width;
+                const x2 = landmarks[end].x * canvas.width;
                 const y2 = landmarks[end].y * canvas.height;
                 
                 ctx.beginPath();
