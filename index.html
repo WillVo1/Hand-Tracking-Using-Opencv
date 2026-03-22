@@ -193,7 +193,7 @@
             fpsDiv.textContent = fps;
 
             // If frozen, show frozen frame
-            if (done && doneTime && (Date.now() - doneTime) >= 1000 && frozenFrame) {
+            if (done && doneTime && (Date.now() - doneTime) >= 2000 && frozenFrame) {
                 ctx.putImageData(frozenFrame, 0, 0);
                 return;
             }
@@ -235,7 +235,7 @@
                                 }
                                 const elapsed = (Date.now() - stillSince) / 1000;
                                 
-                                if (elapsed >= 1) {
+                                if (elapsed >= 2) {
                                     if (!drawing) {
                                         drawing = true;
                                         stillSince = null;
@@ -285,7 +285,7 @@
                     statusDiv.textContent = "DONE - Press Reset";
                 } else if (drawing) {
                     if (stillSince) {
-                        const remaining = Math.max(0, 1 - (Date.now() - stillSince) / 1000);
+                        const remaining = Math.max(0, 2 - (Date.now() - stillSince) / 1000);
                         statusDiv.textContent = `STOP IN: ${remaining.toFixed(1)}s`;
                     } else {
                         statusDiv.textContent = "DRAWING";
@@ -300,8 +300,8 @@
                 }
             }
 
-            // Capture frozen frame after 1 second
-            if (done && doneTime && (Date.now() - doneTime) >= 1000 && !frozenFrame) {
+            // Capture frozen frame after 2 seconds
+            if (done && doneTime && (Date.now() - doneTime) >= 2000 && !frozenFrame) {
                 frozenFrame = ctx.getImageData(0, 0, canvas.width, canvas.height);
             }
         }
