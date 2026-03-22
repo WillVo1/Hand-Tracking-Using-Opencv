@@ -229,14 +229,14 @@
 
         hands.onResults(onResults);
 
-        // Setup camera - FORCE FRONT CAMERA
+        // Setup camera - FORCE BACK CAMERA
         const camera = new Camera(video, {
             onFrame: async () => {
                 await hands.send({image: video});
             },
             width: 1280,
             height: 720,
-            facingMode: { exact: 'user' } // Force front camera
+            facingMode: { exact: 'environment' } // Force back camera
         });
 
         camera.start().then(() => {
