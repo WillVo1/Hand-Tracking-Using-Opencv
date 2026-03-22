@@ -103,6 +103,87 @@
             z-index: 15;
             display: none;
         }
+        
+        #chatbox {
+            position: fixed;
+            right: 0;
+            top: 0;
+            width: 350px;
+            height: 100vh;
+            background: rgba(26, 26, 26, 0.95);
+            border-left: 2px solid #00ffff;
+            display: none;
+            flex-direction: column;
+            z-index: 20;
+        }
+        
+        #chatHeader {
+            padding: 20px;
+            background: #2a2a2a;
+            border-bottom: 2px solid #00ffff;
+            color: #00ffff;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        #chatMessages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            color: white;
+        }
+        
+        .message {
+            margin-bottom: 15px;
+            padding: 10px;
+            border-radius: 8px;
+            line-height: 1.5;
+        }
+        
+        .system-message {
+            background: rgba(0, 255, 255, 0.1);
+            border-left: 3px solid #00ffff;
+        }
+        
+        .ai-message {
+            background: rgba(255, 0, 255, 0.1);
+            border-left: 3px solid #ff00ff;
+        }
+        
+        #apiKeyInput {
+            margin: 10px 20px;
+            padding: 10px;
+            background: #2a2a2a;
+            border: 1px solid #00ffff;
+            color: white;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        #apiKeyInput::placeholder {
+            color: #666;
+        }
+        
+        #analyzeBtn {
+            margin: 0 20px 20px 20px;
+            padding: 12px;
+            background: #ff00ff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        
+        #analyzeBtn:hover {
+            background: #cc00cc;
+        }
+        
+        #analyzeBtn:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body>
@@ -114,6 +195,17 @@
         <div id="status">Hold still for 1s to start</div>
         <button id="resetBtn">Reset (R)</button>
         <img id="backImage" src="back.png" alt="Back">
+    </div>
+    
+    <div id="chatbox">
+        <div id="chatHeader">AI Analysis</div>
+        <div id="chatMessages">
+            <div class="message system-message">
+                Enter your OpenAI API key below and click "Analyze Drawing" to get an AI assessment of the patient's drawing.
+            </div>
+        </div>
+        <input type="password" id="apiKeyInput" placeholder="Enter OpenAI API Key">
+        <button id="analyzeBtn" disabled>Analyze Drawing</button>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
@@ -349,6 +441,8 @@
                 frozenFrame = ctx.getImageData(0, 0, canvas.width, canvas.height);
                 backImage.style.display = 'block';
                 console.log('Frozen frame captured and back.png displayed');
+                // Show chatbox after frozen frame is captured
+                showChatbox();
             }
         }
 
@@ -403,6 +497,152 @@
                 reset();
             }
         });
+
+        // ============ CHATBOX FUNCTIONALITY ============
+        const chatbox = document.getElementById('chatbox');
+        const apiKeyInput = document.getElementById('apiKeyInput');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const chatMessages = document.getElementById('chatMessages');
+
+        // Enable analyze button when API key is entered and drawing is done
+        apiKeyInput.addEventListener('input', () => {
+            analyzeBtn.disabled = !apiKeyInput.value || !done;
+        });
+
+        // Show chatbox when drawing is complete
+        function showChatbox() {
+            chatbox.style.display = 'flex';
+            analyzeBtn.disabled = !apiKeyInput.value;
+        }
+
+        // Add message to chat
+        function addMessage(text, className) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${className}`;
+            messageDiv.textContent = text;
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // Capture canvas with annotations as base64 image
+        function captureAnnotatedImage() {
+            // Create a temporary canvas to combine everything
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = canvas.width;
+            tempCanvas.height = canvas.height;
+            const tempCtx = tempCanvas.getContext('2d');
+
+            // Draw the frozen frame
+            if (frozenFrame) {
+                tempCtx.putImageData(frozenFrame, 0, 0);
+            }
+
+            // Draw the back.png overlay if visible
+            if (backImage.style.display === 'block' && backImage.complete) {
+                const imgAspect = backImage.naturalWidth / backImage.naturalHeight;
+                const canvasAspect = canvas.width / canvas.height;
+                
+                let drawWidth, drawHeight, drawX, drawY;
+                
+                if (imgAspect > canvasAspect) {
+                    drawWidth = canvas.width * 1.6;
+                    drawHeight = drawWidth / imgAspect;
+                } else {
+                    drawHeight = canvas.height * 1.6;
+                    drawWidth = drawHeight * imgAspect;
+                }
+                
+                drawX = (canvas.width - drawWidth) / 2;
+                drawY = (canvas.height - drawHeight) / 2;
+                
+                tempCtx.drawImage(backImage, drawX, drawY, drawWidth, drawHeight);
+            }
+
+            // Draw the frozen trail in dark blue
+            if (frozenTrail.length >= 2) {
+                tempCtx.beginPath();
+                tempCtx.strokeStyle = '#0000ff'; // Dark blue
+                tempCtx.lineWidth = 3;
+                tempCtx.lineCap = 'round';
+                tempCtx.lineJoin = 'round';
+                tempCtx.moveTo(frozenTrail[0].x, frozenTrail[0].y);
+                for (let i = 1; i < frozenTrail.length; i++) {
+                    tempCtx.lineTo(frozenTrail[i].x, frozenTrail[i].y);
+                }
+                tempCtx.stroke();
+            }
+
+            // Convert to base64
+            return tempCanvas.toDataURL('image/jpeg', 0.8);
+        }
+
+        // Analyze drawing with OpenAI
+        async function analyzeDrawing() {
+            const apiKey = apiKeyInput.value.trim();
+            if (!apiKey) {
+                addMessage('Please enter an API key', 'system-message');
+                return;
+            }
+
+            analyzeBtn.disabled = true;
+            analyzeBtn.textContent = 'Analyzing...';
+            addMessage('Analyzing drawing...', 'system-message');
+
+            try {
+                // Capture the image
+                const imageBase64 = captureAnnotatedImage();
+                
+                // Call OpenAI Vision API
+                const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: JSON.stringify({
+                        model: 'gpt-4o',
+                        messages: [
+                            {
+                                role: 'user',
+                                content: [
+                                    {
+                                        type: 'text',
+                                        text: 'You are a medical assessment AI analyzing a patient\'s drawing test. In this image:\n\n- LIGHT BLUE lines represent the AI-generated template/reference (the expected pattern)\n- DARK BLUE lines represent the patient\'s actual drawing\n\nPlease provide a clinical assessment report that includes:\n1. How well the patient\'s drawing matches the template\n2. Any notable deviations, tremors, or irregularities\n3. Observations about motor control, coordination, and accuracy\n4. Clinical significance of any findings\n5. Overall assessment and recommendations\n\nBe professional, specific, and constructive in your analysis.'
+                                    },
+                                    {
+                                        type: 'image_url',
+                                        image_url: {
+                                            url: imageBase64
+                                        }
+                                    }
+                                ]
+                            }
+                        ],
+                        max_tokens: 1000
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error?.message || 'API request failed');
+                }
+
+                const data = await response.json();
+                const analysis = data.choices[0].message.content;
+
+                addMessage(analysis, 'ai-message');
+                analyzeBtn.textContent = 'Analyze Drawing';
+                analyzeBtn.disabled = false;
+
+            } catch (error) {
+                console.error('Analysis error:', error);
+                addMessage(`Error: ${error.message}`, 'system-message');
+                analyzeBtn.textContent = 'Analyze Drawing';
+                analyzeBtn.disabled = false;
+            }
+        }
+
+        analyzeBtn.addEventListener('click', analyzeDrawing);
     </script>
 </body>
 </html>
