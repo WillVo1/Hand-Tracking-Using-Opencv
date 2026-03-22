@@ -263,19 +263,20 @@
                                 }
                                 const elapsed = (Date.now() - stillSince) / 1000;
                                 
-                                if (elapsed >= 2) {
-                                    if (!drawing) {
-                                        drawing = true;
-                                        stillSince = null;
-                                    } else {
-                                        done = true;
-                                        doneTime = Date.now();
-                                        drawing = false;
-                                        frozenTrail = [...trailPoints];
-                                        stillSince = null;
-                                        recentPositions = [];
-                                        resetBtn.style.display = 'block';
-                                    }
+                                // Check if it's time to start or stop
+                                if (!drawing && elapsed >= 1) {
+                                    // Start drawing after 1 second
+                                    drawing = true;
+                                    stillSince = null;
+                                } else if (drawing && elapsed >= 2) {
+                                    // Stop drawing after 2 seconds
+                                    done = true;
+                                    doneTime = Date.now();
+                                    drawing = false;
+                                    frozenTrail = [...trailPoints];
+                                    stillSince = null;
+                                    recentPositions = [];
+                                    resetBtn.style.display = 'block';
                                 }
                             } else {
                                 stillSince = null;
