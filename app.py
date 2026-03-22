@@ -48,7 +48,7 @@ else:
     print(f"[Overlay] Loaded back.png: {back_img.shape}")
     # Resize overlay - 3x bigger than half screen
     bh, bw = back_img.shape[:2]
-    scale = min((CAM_W * 0.5) / bw, (CAM_H * 0.5) / bh) * 4.5
+    scale = min((CAM_W * 0.5) / bw, (CAM_H * 0.5) / bh) * 6
     new_w = int(bw * scale)
     new_h = int(bh * scale)
     back_img_resized = cv2.resize(back_img, (new_w, new_h), interpolation=cv2.INTER_AREA)

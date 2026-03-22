@@ -283,8 +283,8 @@
                                     // Start drawing after 1 second
                                     drawing = true;
                                     stillSince = null;
-                                } else if (drawing && elapsed >= 2) {
-                                    // Stop drawing after 2 seconds
+                                } else if (drawing && elapsed >= 1) {
+                                    // Stop drawing after 1 second
                                     console.log('STOPPING! Trail points:', trailPoints.length);
                                     done = true;
                                     doneTime = Date.now();
@@ -328,7 +328,7 @@
                     statusDiv.textContent = "DONE - Press Reset";
                 } else if (drawing) {
                     if (stillSince) {
-                        const remaining = Math.max(0, 2 - (Date.now() - stillSince) / 1000);
+                        const remaining = Math.max(0, 1 - (Date.now() - stillSince) / 1000);
                         statusDiv.textContent = `STOP IN: ${remaining.toFixed(1)}s`;
                     } else {
                         statusDiv.textContent = "DRAWING";
