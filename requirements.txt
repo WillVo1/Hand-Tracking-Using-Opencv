@@ -17,6 +17,8 @@ torchvision>=0.15.0
 # Utilities
 requests>=2.31.0
 Pillow>=10.0.0
+python-dotenv>=1.0.0
+openai>=1.0.0
 
 # Optional dependencies for training
 # matplotlib>=3.7.0

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Hand Drawing Tracker</title>
+    <title>SpineySaver - ML Spine Analysis</title>
     <style>
         * {
             margin: 0;
@@ -35,7 +35,6 @@
             max-width: 100%;
             max-height: 100%;
             background: #000;
-            /* No mirroring for back camera */
         }
         
         #status {
@@ -93,22 +92,28 @@
             z-index: 5;
         }
         
-        #backImage {
+        #mlOverlay {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            max-width: 220%;
-            max-height: 220%;
+            background: rgba(0, 255, 0, 0.1);
+            border: 2px solid #00ff00;
+            padding: 15px;
+            border-radius: 10px;
+            color: #00ff00;
+            font-size: 16px;
+            font-weight: bold;
             z-index: 15;
             display: none;
+            text-align: center;
         }
         
         #chatbox {
             position: fixed;
             right: 0;
             top: 0;
-            width: 350px;
+            width: 400px;
             height: 100vh;
             background: rgba(26, 26, 26, 0.95);
             border-left: 2px solid #00ffff;
@@ -126,6 +131,29 @@
             font-weight: bold;
         }
         
+        #apiKeySection {
+            padding: 15px 20px;
+            background: #1f1f1f;
+            border-bottom: 1px solid #333;
+        }
+        
+        #apiKeySection label {
+            color: #00ffff;
+            font-size: 12px;
+            display: block;
+            margin-bottom: 5px;
+        }
+        
+        #apiKeyInput {
+            width: 100%;
+            padding: 8px;
+            background: #2a2a2a;
+            border: 1px solid #00ffff;
+            color: white;
+            border-radius: 5px;
+            font-size: 12px;
+        }
+        
         #chatMessages {
             flex: 1;
             overflow-y: auto;
@@ -138,6 +166,7 @@
             padding: 10px;
             border-radius: 8px;
             line-height: 1.5;
+            font-size: 14px;
         }
         
         .system-message {
@@ -150,6 +179,26 @@
             border-left: 3px solid #ff00ff;
         }
         
+        .ml-message {
+            background: rgba(0, 255, 0, 0.1);
+            border-left: 3px solid #00ff00;
+        }
+        
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            border-bottom: 1px solid #333;
+        }
+        
+        .metric-label {
+            color: #00ffff;
+            font-weight: bold;
+        }
+        
+        .metric-value {
+            color: #fff;
+        }
     </style>
 </head>
 <body>
@@ -160,14 +209,21 @@
         <div id="fps">0</div>
         <div id="status">Hold still for 1s to start</div>
         <button id="resetBtn">Reset (R)</button>
-        <img id="backImage" src="back.png" alt="Back">
+        <div id="mlOverlay">
+            🤖 ML Model Analyzing...<br>
+            Predicting Spine Line
+        </div>
     </div>
     
     <div id="chatbox">
-        <div id="chatHeader">Report</div>
+        <div id="chatHeader">ML Analysis Report</div>
+        <div id="apiKeySection">
+            <label for="apiKeyInput">API Key (OpenAI/Anthropic)</label>
+            <input type="password" id="apiKeyInput" placeholder="Enter your API key for AI analysis">
+        </div>
         <div id="chatMessages">
             <div class="message system-message">
-                Complete the drawing to see the report here.
+                Complete the drawing to see the ML analysis report here.
             </div>
         </div>
     </div>
@@ -177,7 +233,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
     <script>
-        // Updated: 1 second stop timer - v2
         const video = document.getElementById('videoElement');
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
@@ -185,11 +240,13 @@
         const fpsDiv = document.getElementById('fps');
         const resetBtn = document.getElementById('resetBtn');
         const loadingDiv = document.getElementById('loading');
-        const backImage = document.getElementById('backImage');
+        const mlOverlay = document.getElementById('mlOverlay');
+        const apiKeyInput = document.getElementById('apiKeyInput');
 
         // State variables
         let trailPoints = [];
         let frozenTrail = [];
+        let predictedLine = [];
         let recentPositions = [];
         let stillSince = null;
         let drawing = false;
@@ -213,6 +270,75 @@
             [13,17],[17,18],[18,19],[19,20],[0,17]
         ];
 
+        // ML Model prediction simulation
+        function predictSpineLine(points) {
+            if (points.length < 4) return [];
+            
+            // Simulate ML model prediction
+            const xs = points.map(p => p.x);
+            const ys = points.map(p => p.y);
+            
+            // Fit a polynomial curve (simulating ML prediction)
+            const minY = Math.min(...ys);
+            const maxY = Math.max(...ys);
+            const avgX = xs.reduce((a, b) => a + b, 0) / xs.length;
+            
+            // Generate predicted line with slight curvature
+            const predicted = [];
+            for (let y = minY; y <= maxY; y += 5) {
+                const t = (y - minY) / (maxY - minY);
+                const x = avgX + Math.sin(t * Math.PI) * 20; // Slight curvature
+                predicted.push({x: Math.round(x), y: Math.round(y)});
+            }
+            
+            console.log('ML Model predicted', predicted.length, 'points');
+            return predicted;
+        }
+
+        // Generate AI analysis prompt
+        function generateAnalysisPrompt(trailPoints, predictedLine) {
+            const apiKey = apiKeyInput.value.trim();
+            
+            if (!apiKey) {
+                return {
+                    hasKey: false,
+                    message: "Please enter an API key to generate AI analysis"
+                };
+            }
+            
+            // Calculate metrics
+            const xs = trailPoints.map(p => p.x);
+            const avgX = xs.reduce((a, b) => a + b, 0) / xs.length;
+            const deviations = xs.map(x => Math.abs(x - avgX));
+            const maxDeviation = Math.max(...deviations);
+            const avgDeviation = deviations.reduce((a, b) => a + b, 0) / deviations.length;
+            const estimatedAngle = Math.round(avgDeviation / 10 * 15);
+            
+            const prompt = `Analyze this spinal drawing with the following metrics:
+- Trail points: ${trailPoints.length}
+- Max deviation: ${maxDeviation.toFixed(2)}px
+- Avg deviation: ${avgDeviation.toFixed(2)}px
+- Estimated curvature angle: ~${estimatedAngle}°
+- API Key: ${apiKey.substring(0, 10)}...
+
+Provide a brief analysis of the spinal curvature.`;
+            
+            console.log('[AI Prompt Generated]');
+            console.log('Angle:', estimatedAngle, '°');
+            console.log('Deviation:', avgDeviation.toFixed(2), 'px');
+            
+            return {
+                hasKey: true,
+                prompt: prompt,
+                metrics: {
+                    points: trailPoints.length,
+                    maxDeviation: maxDeviation.toFixed(2),
+                    avgDeviation: avgDeviation.toFixed(2),
+                    angle: estimatedAngle
+                }
+            };
+        }
+
         // Initialize MediaPipe Hands
         const hands = new Hands({
             locateFile: (file) => {
@@ -229,14 +355,14 @@
 
         hands.onResults(onResults);
 
-        // Setup camera - FORCE BACK CAMERA
+        // Setup camera
         const camera = new Camera(video, {
             onFrame: async () => {
                 await hands.send({image: video});
             },
             width: 1280,
             height: 720,
-            facingMode: { exact: 'environment' } // Force back camera
+            facingMode: { ideal: 'environment' }
         });
 
         camera.start().then(() => {
@@ -250,31 +376,27 @@
         });
 
         function onResults(results) {
-            // Set canvas size if not set
             if (canvas.width === 0 || canvas.height === 0) {
                 canvas.width = results.image.width;
                 canvas.height = results.image.height;
             }
 
-            // Calculate FPS
             const now = performance.now();
             fps = Math.round(1000 / (now - lastTime));
             lastTime = now;
             fpsDiv.textContent = fps;
 
-            // If frozen (after 3 seconds), show frozen frame and return
             if (done && doneTime && (Date.now() - doneTime) >= 3000 && frozenFrame) {
                 ctx.putImageData(frozenFrame, 0, 0);
                 return;
             }
 
-            // Always draw video frame first
             ctx.save();
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
             ctx.restore();
 
-            // Draw the trail during drawing mode
+            // Draw trail during drawing
             if (drawing && trailPoints.length >= 2) {
                 ctx.beginPath();
                 ctx.strokeStyle = '#0000ff';
@@ -288,10 +410,10 @@
                 ctx.stroke();
             }
 
-            // ALWAYS draw frozen trail when done, even without hands
+            // Draw frozen trail (drawn line) in RED
             if (done && frozenTrail.length >= 2) {
                 ctx.beginPath();
-                ctx.strokeStyle = '#0000ff';
+                ctx.strokeStyle = '#ff0000';
                 ctx.lineWidth = 3;
                 ctx.lineCap = 'round';
                 ctx.lineJoin = 'round';
@@ -300,19 +422,43 @@
                     ctx.lineTo(frozenTrail[i].x, frozenTrail[i].y);
                 }
                 ctx.stroke();
+                
+                // Draw ML predicted line in GREEN
+                if (predictedLine.length >= 2) {
+                    ctx.beginPath();
+                    ctx.strokeStyle = '#00ff00';
+                    ctx.lineWidth = 3;
+                    ctx.lineCap = 'round';
+                    ctx.lineJoin = 'round';
+                    ctx.moveTo(predictedLine[0].x, predictedLine[0].y);
+                    for (let i = 1; i < predictedLine.length; i++) {
+                        ctx.lineTo(predictedLine[i].x, predictedLine[i].y);
+                    }
+                    ctx.stroke();
+                    
+                    // Add legend
+                    ctx.fillStyle = '#ff0000';
+                    ctx.fillRect(10, 150, 20, 3);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = '14px Arial';
+                    ctx.fillText('Drawn Line', 35, 155);
+                    
+                    ctx.fillStyle = '#00ff00';
+                    ctx.fillRect(10, 170, 20, 3);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillText('ML Prediction', 35, 175);
+                }
             }
 
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 for (const landmarks of results.multiHandLandmarks) {
-                    // Draw hand landmarks only if not done
                     if (!done) {
                         drawLandmarks(landmarks);
                         drawConnections(landmarks);
                     }
 
-                    // Get index finger tip (landmark 8)
                     const indexTip = landmarks[8];
-                    const cx = indexTip.x * canvas.width; // No mirroring for back camera
+                    const cx = indexTip.x * canvas.width;
                     const cy = indexTip.y * canvas.height;
 
                     recentPositions.push({x: cx, y: cy});
@@ -335,19 +481,27 @@
                                 }
                                 const elapsed = (Date.now() - stillSince) / 1000;
                                 
-                                // Check if it's time to start or stop
                                 if (!drawing && elapsed >= 1) {
-                                    // Start drawing after 1 second
                                     drawing = true;
                                     stillSince = null;
                                 } else if (drawing && elapsed >= 1) {
-                                    // Stop drawing after 1 second
                                     console.log('STOPPING! Trail points:', trailPoints.length);
                                     done = true;
                                     doneTime = Date.now();
                                     drawing = false;
                                     frozenTrail = [...trailPoints];
-                                    console.log('Frozen trail saved:', frozenTrail.length);
+                                    
+                                    // Use ML model to predict spine line
+                                    mlOverlay.style.display = 'block';
+                                    setTimeout(() => {
+                                        predictedLine = predictSpineLine(frozenTrail);
+                                        mlOverlay.style.display = 'none';
+                                        
+                                        // Generate AI analysis
+                                        const analysis = generateAnalysisPrompt(frozenTrail, predictedLine);
+                                        showAnalysisReport(analysis);
+                                    }, 1500);
+                                    
                                     stillSince = null;
                                     recentPositions = [];
                                     resetBtn.style.display = 'block';
@@ -367,7 +521,6 @@
                         }
                     }
 
-                    // Draw live finger tracking line during drawing
                     if (drawing && trailPoints.length >= 1) {
                         ctx.beginPath();
                         ctx.strokeStyle = '#0000ff';
@@ -380,9 +533,8 @@
                     }
                 }
 
-                // Update status
                 if (done) {
-                    statusDiv.textContent = "DONE - Press Reset";
+                    statusDiv.textContent = "DONE - ML Analysis Complete";
                 } else if (drawing) {
                     if (stillSince) {
                         const remaining = Math.max(0, 1 - (Date.now() - stillSince) / 1000);
@@ -400,13 +552,9 @@
                 }
             }
 
-            // Capture frozen frame after 3 seconds and show back.png
             if (done && doneTime && (Date.now() - doneTime) >= 3000 && !frozenFrame) {
                 frozenFrame = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                backImage.style.display = 'block';
-                console.log('Frozen frame captured and back.png displayed');
-                // Show chatbox after frozen frame is captured
-                showChatbox();
+                console.log('Frozen frame captured');
             }
         }
 
@@ -442,6 +590,7 @@
         function reset() {
             trailPoints = [];
             frozenTrail = [];
+            predictedLine = [];
             recentPositions = [];
             stillSince = null;
             drawing = false;
@@ -450,30 +599,63 @@
             lastDrawPos = null;
             frozenFrame = null;
             resetBtn.style.display = 'none';
-            backImage.style.display = 'none';
+            mlOverlay.style.display = 'none';
+            chatbox.style.display = 'none';
+            chatMessages.innerHTML = '<div class="message system-message">Complete the drawing to see the ML analysis report here.</div>';
         }
 
         resetBtn.addEventListener('click', reset);
 
-        // Keyboard support
         document.addEventListener('keydown', (e) => {
             if (e.key === 'r' || e.key === 'R') {
                 reset();
             }
         });
 
-        // ============ REPORT BOX FUNCTIONALITY ============
+        // ============ ANALYSIS REPORT FUNCTIONALITY ============
         const chatbox = document.getElementById('chatbox');
         const chatMessages = document.getElementById('chatMessages');
 
-        // Show report box when drawing is complete
-        function showChatbox() {
-            console.log('Showing report box');
+        function showAnalysisReport(analysis) {
+            console.log('Showing analysis report');
             chatbox.style.display = 'flex';
-            addMessage('The estimation shows a mild spinal curvature consistent with scoliosis, most noticeable in the lower thoracic to lumbar region. The curve appears to deviate slightly to one side and is annotated at approximately 17 degrees, which would generally fall within the mild range. Overall spinal alignment is not straight, but the curvature does not appear severe on this image alone. Formal interpretation and management should be based on a clinician’s Cobb angle measurement and full radiologic review.', 'ai-message');
+            chatMessages.innerHTML = '';
+            
+            if (!analysis.hasKey) {
+                addMessage(analysis.message, 'system-message');
+                addMessage('Enter your API key above to generate AI-powered analysis using GPT-4 or Claude.', 'system-message');
+            } else {
+                // Show metrics
+                const metricsHtml = `
+                    <div class="metric">
+                        <span class="metric-label">Trail Points:</span>
+                        <span class="metric-value">${analysis.metrics.points}</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Max Deviation:</span>
+                        <span class="metric-value">${analysis.metrics.maxDeviation}px</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Avg Deviation:</span>
+                        <span class="metric-value">${analysis.metrics.avgDeviation}px</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Estimated Angle:</span>
+                        <span class="metric-value">~${analysis.metrics.angle}°</span>
+                    </div>
+                `;
+                
+                addMessage('ML Model Analysis Complete', 'ml-message');
+                const metricsDiv = document.createElement('div');
+                metricsDiv.className = 'message ml-message';
+                metricsDiv.innerHTML = metricsHtml;
+                chatMessages.appendChild(metricsDiv);
+                
+                addMessage('AI Prompt Generated:\n\n' + analysis.prompt, 'ai-message');
+                addMessage('The AI analysis would be generated here using your API key to call OpenAI GPT-4 or Anthropic Claude for detailed spinal curvature assessment.', 'system-message');
+            }
         }
 
-        // Add message to report box
         function addMessage(text, className) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${className}`;

@@ -3,17 +3,3 @@ handeenv/
 Raw_image/
 Solution/
 back_line_model.pth
-
-# Image files
-*.png
-*.jpg
-*.jpeg
-*.gif
-*.bmp
-*.tiff
-*.tif
-*.webp
-*.svg
-*.ico
-*.heic
-*.heif
